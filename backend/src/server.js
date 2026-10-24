@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 
 import { clerkMiddleware } from "@clerk/express";
+import clerkWebhook from "./routes/clerkWebhook.js";
 
 import User from "./models/user.model.js";
 import { connectDB } from "./lib/db.js";
