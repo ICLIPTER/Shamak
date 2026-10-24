@@ -14,11 +14,13 @@
   "type": "module",
   "dependencies": {
     "@clerk/express": "^2.1.83",
+    "@imagekit/nodejs": "^7.13.0",
     "cors": "^2.8.6",
     "cron": "^4.4.0",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
-    "mongoose": "^9.11.4"
+    "mongoose": "^9.11.4",
+    "multer": "^2.5.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
