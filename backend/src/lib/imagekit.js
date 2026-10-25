@@ -15,7 +15,7 @@ function createFileName(originalName = "upload") {
 }
 
 /**
- * Upload image or video to ImageKit
+ * Upload image, video, or voice note to ImageKit.
  * @see https://imagekit.io/docs/api-reference/upload-file/upload-file
  */
 async function uploadChatMedia(file) {

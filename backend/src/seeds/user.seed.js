@@ -135,7 +135,14 @@ async function seedDatabase() {
       updateOne: {
         filter: { clerkId },
         update: {
-          $set: { clerkId, fullName, email, profilePic },
+          $set: {
+            clerkId,
+            fullName,
+            email,
+            profilePic,
+            isApproved: true,
+            role: "member",
+          },
         },
         upsert: true,
       },

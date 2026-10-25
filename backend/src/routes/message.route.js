@@ -1,20 +1,28 @@
 import express from "express";
+
 import {
-  getConversationsForSidebar,
-  getMessages,
-  getUsersForSidebar,
-  sendMessages,
+  deleteMessage,
+  editMessage,
+  getAlbum,
+  pinMessage,
+  reactToMessage,
+  searchMessages,
+  votePoll,
 } from "../controllers/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
-import { upload } from "../middleware/upload.middleware.js";
 
 const router = express.Router();
 
 router.use(protectRoute);
 
-router.get("/users", getUsersForSidebar);
-router.get("/conversations", getConversationsForSidebar);
-router.get("/:id", getMessages);
-router.post("/send/:id", upload.single("media"), sendMessages);
+// Static paths must come before "/:id".
+router.get("/search", searchMessages);
+router.get("/album", getAlbum);
+
+router.patch("/:id", editMessage);
+router.delete("/:id", deleteMessage);
+router.post("/:id/reactions", reactToMessage);
+router.post("/:id/vote", votePoll);
+router.post("/:id/pin", pinMessage);
 
 export default router;

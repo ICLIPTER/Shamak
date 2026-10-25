@@ -1,5 +1,6 @@
 import express from "express";
 import User from "../models/user.model.js";
+import Invite from "../models/invite.model.js";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 
 const router = express.Router();
@@ -13,7 +14,9 @@ router.post("/", async (req, res) => {
     }
 
     // clerk's verifier expects a Web Request with the raw body; express.raw gives a Buffer.
-    const payload = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body);
+    const payload = Buffer.isBuffer(req.body)
+      ? req.body.toString("utf8")
+      : String(req.body);
     const request = new Request("http://internal/webhooks/clerk", {
       method: "POST",
       headers: new Headers(req.headers),
@@ -27,17 +30,65 @@ router.post("/", async (req, res) => {
       const u = evt.data;
 
       const email =
-        u.email_addresses?.find((e) => e.id === u.primary_email_address_id)?.email_address ??
-        u.email_addresses?.[0]?.email_address;
+        u.email_addresses?.find((e) => e.id === u.primary_email_address_id)
+          ?.email_address ??
+        u.email_addresses?.[0]?.email_address ??
+        "";
 
       const fullName =
-        [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || email?.split("@")[0];
+        [u.first_name, u.last_name].filter(Boolean).join(" ") ||
+        u.username ||
+        email.split("@")[0];
 
-      await User.findOneAndUpdate(
-        { clerkId: u.id },
-        { clerkId: u.id, email, fullName, profilePic: u.image_url },
-        { new: true, upsert: true, setDefaultsOnInsert: true },
-      );
+      if (evt.type === "user.created") {
+        // Bootstrap: the very first person to sign up becomes the family admin
+        // and is approved automatically. Everyone after that needs approval or
+        // a valid invite for their email address.
+        const approvedCount = await User.countDocuments({
+          isApproved: { $ne: false },
+        });
+        const isFirstUser = approvedCount === 0;
+
+        const invite = email
+          ? await Invite.findOne({
+              email: email.toLowerCase(),
+              usedBy: null,
+              expiresAt: { $gt: new Date() },
+            })
+          : null;
+
+        // Idempotent: Clerk can redeliver the same event.
+        const user = await User.findOneAndUpdate(
+          { clerkId: u.id },
+          {
+            $setOnInsert: {
+              clerkId: u.id,
+              email,
+              fullName,
+              profilePic: u.image_url,
+              isApproved: isFirstUser || Boolean(invite),
+              role: isFirstUser || invite?.role === "admin" ? "admin" : "member",
+            },
+          },
+          { new: true, upsert: true, setDefaultsOnInsert: true },
+        );
+
+        if (invite && user) {
+          invite.usedBy = user._id;
+          invite.usedAt = new Date();
+          await invite.save();
+        }
+      } else {
+        // Never clobber approval/role on an update.
+        await User.updateOne(
+          { clerkId: u.id },
+          {
+            $set: { email, fullName, profilePic: u.image_url },
+            $setOnInsert: { clerkId: u.id },
+          },
+          { upsert: true },
+        );
+      }
     }
 
     if (evt.type === "user.deleted") {
