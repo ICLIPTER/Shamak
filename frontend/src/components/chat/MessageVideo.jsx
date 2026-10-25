@@ -1,5 +1,4 @@
-import { isImageKitUrl, withTransform } from "../../lib/imagekit";
-
+import { isImageKitUrl, withTransform } from "../../lib/imageKit.js";
 // Chat videos are stored on ImageKit, so we let ImageKit optimize delivery
 // on the fly via URL transformations (compressed + sized for the bubble).
 // Note: q-auto isn't enabled for video on this account (returns 400), so use a fixed quality.
