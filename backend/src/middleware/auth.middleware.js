@@ -2,6 +2,39 @@ import { getAuth } from "@clerk/express";
 import User from "../models/user.model.js";
 
 /**
+ * Tiny cache for the per-request user lookup. Every API request resolvers the
+ * Clerk session into a User document; naive `findOne` per request doubles the
+ * database load. 60 seconds of staleness is harmless for profile data.
+ */
+const USER_TTL_MS = 60_000;
+const userCache = new Map(); // clerkId -> { user, expiresAt }
+
+function getCachedUser(clerkId) {
+  const entry = userCache.get(clerkId);
+  if (!entry) return null;
+
+  if (entry.expiresAt < Date.now()) {
+    userCache.delete(clerkId);
+    return null;
+  }
+  return entry.user;
+}
+
+function cacheUser(clerkId, user) {
+  userCache.set(clerkId, {
+    user,
+    expiresAt: Date.now() + USER_TTL_MS,
+  });
+  // Opportunistic pruning keeps the cache bounded without a background job.
+  if (userCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, entry] of userCache) {
+      if (entry.expiresAt < now) userCache.delete(key);
+    }
+  }
+}
+
+/**
  * Resolves the Clerk session into a family member document.
  * Does NOT enforce approval — used by the auth bootstrap and invite redemption
  * so a pending user can still see their status and enter a code.
@@ -15,6 +48,13 @@ export async function attachUser(req, res, next) {
       return;
     }
 
+    const cached = getCachedUser(userId);
+    if (cached) {
+      req.user = cached;
+      next();
+      return;
+    }
+
     const user = await User.findOne({ clerkId: userId });
 
     if (!user) {
@@ -22,6 +62,7 @@ export async function attachUser(req, res, next) {
       return;
     }
 
+    cacheUser(userId, user);
     req.user = user;
     next();
   } catch (error) {

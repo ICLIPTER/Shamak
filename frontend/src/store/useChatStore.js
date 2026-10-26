@@ -136,6 +136,8 @@ export const useChatStore = create(
       editingMessage: null,
       isSoundEnabled: true,
       isSendingMedia: false,
+      // 0-100 while a media upload is in flight (images/video/voice).
+      mediaUploadProgress: 0,
       isRecording: false,
 
       // ---- pagination / loading ------------------------------------------
@@ -512,15 +514,31 @@ export const useChatStore = create(
         }));
 
         try {
+          const hasPayload = Boolean(file || audioBlob);
           const res = await axiosInstance.post(
             `/conversations/${conversationId}/messages`,
             form,
+            hasPayload
+              ? {
+                  onUploadProgress: (event) => {
+                    if (!event.total) return;
+                    set({
+                      mediaUploadProgress: Math.min(
+                        100,
+                        Math.round((event.loaded / event.total) * 100),
+                      ),
+                    });
+                  },
+                }
+              : undefined,
           );
           pendingPayloads.delete(clientId);
+          set({ mediaUploadProgress: 0 });
           get().appendMessage(conversationId, res.data);
           return true;
         } catch (error) {
           // Keep the payload so the failed bubble can be retried.
+          set({ mediaUploadProgress: 0 });
 
           set((state) => ({
             messages:

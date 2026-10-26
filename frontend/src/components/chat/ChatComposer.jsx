@@ -22,6 +22,7 @@ export function ChatComposer() {
   const composerText = useChatStore((state) => state.composerText);
   const isSoundEnabled = useChatStore((state) => state.isSoundEnabled);
   const isSendingMedia = useChatStore((state) => state.isSendingMedia);
+  const mediaUploadProgress = useChatStore((state) => state.mediaUploadProgress);
   const replyTo = useChatStore((state) => state.replyTo);
   const editingMessage = useChatStore((state) => state.editingMessage);
 
@@ -118,7 +119,11 @@ export function ChatComposer() {
       {isSendingMedia ? (
         <div className="mx-auto mb-2 flex max-w-full items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
           <LoaderIcon className="size-4 shrink-0 animate-spin text-accent" strokeWidth={2} aria-hidden />
-          <span className="truncate">Uploading…</span>
+          <span className="truncate">
+            {mediaUploadProgress > 0 && mediaUploadProgress < 100
+              ? `Uploading… ${mediaUploadProgress}%`
+              : "Uploading…"}
+          </span>
         </div>
       ) : null}
 

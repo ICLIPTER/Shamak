@@ -4,6 +4,7 @@ import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
 import { hasImageKitConfig, uploadChatMedia } from "../lib/imagekit.js";
 import { emitToConversation, emitToUser } from "../lib/socket.js";
+import { discardUpload } from "../middleware/upload.middleware.js";
 import {
   buildMessagePayload,
   hasPushConfig,
@@ -261,19 +262,26 @@ export async function sendMessage(req, res) {
     const populated = await message.populate("senderId", SENDER_FIELDS);
     const serialized = serializeMessage(populated);
 
-    // Update the conversation preview (uses the populated sender name).
-    const previewDoc = {
-      ...message.toObject(),
-      senderName: req.user.fullName,
-    };
-    await touchConversation(conversation, previewDoc);
-
+    // Fast path first: broadcast + respond before any side work.
     emitToConversation(conversation._id, "message:new", {
       conversationId: String(conversation._id),
       message: serialized,
     });
 
-    // Push to offline family members (never blocks the HTTP response).
+    res.status(201).json(serialized);
+
+    // Bulkier side work happens after the response is already on the wire.
+    // The conversation preview (uses the populated sender name) and the push
+    // fan-out no longer delay the sender's confirmation.
+    const previewDoc = {
+      ...message.toObject(),
+      senderName: req.user.fullName,
+    };
+    touchConversation(conversation, previewDoc).catch((error) =>
+      console.error("Conversation preview update failed:", error.message),
+    );
+
+    // Push to offline family members.
     if (hasPushConfig()) {
       notifyConversation(
         conversation,
@@ -285,11 +293,12 @@ export async function sendMessage(req, res) {
         }),
       ).catch((error) => console.error("Push failed:", error.message));
     }
-
-    res.status(201).json(serialized);
   } catch (error) {
     console.error("Error in sendMessage:", error.message);
     res.status(500).json({ message: "Internal server error" });
+  } finally {
+    // The multer temp file is no longer needed once this request ends.
+    discardUpload(req.file);
   }
 }
 

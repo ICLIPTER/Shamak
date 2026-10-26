@@ -91,6 +91,9 @@ io.use(async (socket, next) => {
 
 io.on("connection", async (socket) => {
   const { userId } = socket;
+
+  // True if this user was offline everywhere before this socket.
+  const isFirstSession = !userSockets.has(userId);
   addSocket(userId, socket.id);
 
   socket.join(`user:${userId}`);
@@ -107,7 +110,13 @@ io.on("connection", async (socket) => {
     console.error("Failed to join conversation rooms:", error.message);
   }
 
-  io.emit("getOnlineUsers", getOnlineUserIds());
+  // Full presence snapshot only for the connecting socket; everyone else
+  // gets a tiny delta (see presence:update below). At scale, broadcasting
+  // the whole list on every connect/disconnect is a storm.
+  socket.emit("getOnlineUsers", getOnlineUserIds());
+  if (isFirstSession) {
+    socket.broadcast.emit("presence:update", { userId, online: true });
+  }
 
   const inConversation = (conversationId) =>
     Boolean(conversationId) && socket.rooms.has(`conv:${conversationId}`);
@@ -161,6 +170,10 @@ io.on("connection", async (socket) => {
       User.updateOne({ _id: userId }, { lastSeenAt: new Date() }).catch(() => {
         /* presence is best-effort */
       });
+
+      // Delta instead of the full list: everyone learns one user went offline.
+      socket.broadcast.emit("presence:update", { userId, online: false });
+
       // Tell the room to clear this person's typing indicator.
       for (const room of socket.rooms) {
         if (room.startsWith("conv:")) {
@@ -172,8 +185,6 @@ io.on("connection", async (socket) => {
         }
       }
     }
-
-    io.emit("getOnlineUsers", getOnlineUserIds());
   });
 });
 

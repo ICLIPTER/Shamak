@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 import ImageKit, { toFile } from "@imagekit/nodejs";
 
 const imagekit = new ImageKit({ privateKey: process.env.IMAGEKIT_PRIVATE_KEY });
@@ -16,13 +18,17 @@ function createFileName(originalName = "upload") {
 
 /**
  * Upload image, video, or voice note to ImageKit.
+ * The multer file is streamed straight from the temp dir on disk, so large
+ * videos never buffer in server memory.
  * @see https://imagekit.io/docs/api-reference/upload-file/upload-file
  */
 async function uploadChatMedia(file) {
-  const fileName = createFileName(file.originalname);
+  const fileName = createFileName(file.originalname || "upload");
+
+  const source = file.path ? fs.createReadStream(file.path) : file.buffer;
 
   const result = await imagekit.files.upload({
-    file: await toFile(file.buffer, fileName, { type: file.mimetype }),
+    file: await toFile(source, fileName, { type: file.mimetype }),
     fileName,
     folder: "/chat",
   });

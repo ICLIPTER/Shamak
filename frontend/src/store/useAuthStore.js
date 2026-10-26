@@ -88,6 +88,17 @@ export const useAuthStore = create((set, get) => ({
       set({ onlineUsers: userIds || [] });
     });
 
+    // Incremental presence deltas (connects/disconnects after ours).
+    socket.on("presence:update", ({ userId, online }) => {
+      set((state) => ({
+        onlineUsers: online
+          ? state.onlineUsers.includes(userId)
+            ? state.onlineUsers
+            : [...state.onlineUsers, userId]
+          : state.onlineUsers.filter((id) => id !== userId),
+      }));
+    });
+
     socket.on("connect_error", (error) => {
       if (error?.message === "Unauthorized" || error?.message === "Not approved") {
         set({ authError: error.message });
