@@ -2,11 +2,13 @@ import { useState } from "react";
 import {
   CheckCheckIcon,
   CheckIcon,
+  ClockIcon,
   CopyIcon,
   CornerUpLeftIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PinIcon,
+  RotateCcwIcon,
   SmilePlusIcon,
   Trash2Icon,
   XIcon,
@@ -31,6 +33,17 @@ const IMAGE_TRANSFORM = "q-auto,w-800,f-auto";
 
 function ReadTicks({ message, isMine, otherCount }) {
   if (!isMine) return null;
+
+  // Optimistic messages have no receipts yet.
+  if (message.pending) {
+    return (
+      <ClockIcon
+        className="size-3.5 opacity-70 animate-pulse"
+        strokeWidth={2.5}
+        aria-label="Sending"
+      />
+    );
+  }
 
   const readCount = (message.readBy || []).filter(
     (receipt) => receipt.userId !== message.senderId,
@@ -68,6 +81,7 @@ export function MessageBubble({ message, conversation, isMine, showSender }) {
   const reactToMessage = useChatStore((state) => state.reactToMessage);
   const deleteMessage = useChatStore((state) => state.deleteMessage);
   const pinMessage = useChatStore((state) => state.pinMessage);
+  const retryMessage = useChatStore((state) => state.retryMessage);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
@@ -75,6 +89,7 @@ export function MessageBubble({ message, conversation, isMine, showSender }) {
 
   const kind = messageKind(message);
   const deleted = Boolean(message.deletedAt);
+  const isLocal = Boolean(message.pending || message.failed);
   const reactions = summarizeReactions(message.reactions, meId);
   const isPinned = (conversation.pinnedMessages || []).includes(message._id);
 
@@ -122,7 +137,7 @@ export function MessageBubble({ message, conversation, isMine, showSender }) {
             isMine
               ? "rounded-br-md bg-accent text-accent-foreground"
               : "rounded-bl-md bg-surface"
-          } ${deleted ? "italic opacity-70" : ""}`}
+          } ${deleted || isLocal ? "italic opacity-70" : ""}`}
         >
           {isPinned ? (
             <PinIcon
@@ -198,7 +213,19 @@ export function MessageBubble({ message, conversation, isMine, showSender }) {
           >
             {message.editedAt ? <span className="italic">edited</span> : null}
             <span>{formatMessageTime(message.createdAt)}</span>
-            <ReadTicks message={message} isMine={isMine} otherCount={otherCount} />
+            {message.failed ? (
+              <button
+                type="button"
+                onClick={() => retryMessage(message.clientId)}
+                className="flex items-center gap-0.5 rounded-full px-1 py-0.5 font-semibold text-danger hover:underline"
+                aria-label="Retry sending"
+              >
+                <RotateCcwIcon className="size-3.5" strokeWidth={2.5} />
+                Retry
+              </button>
+            ) : (
+              <ReadTicks message={message} isMine={isMine} otherCount={otherCount} />
+            )}
           </div>
         </div>
 
@@ -227,7 +254,7 @@ export function MessageBubble({ message, conversation, isMine, showSender }) {
       <div
         className={`absolute top-0 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 ${
           isMine ? "right-full mr-1" : "left-full ml-1"
-        }`}
+        } ${isLocal ? "!hidden" : ""}`}
       >
         <button
           type="button"

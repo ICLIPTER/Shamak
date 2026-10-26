@@ -15,6 +15,7 @@ import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import { useChatStore } from "../../store/useChatStore";
 import { useSelectedConversation } from "../../hooks/useSelectedConversation";
 import { formatDuration } from "../../lib/chat";
+import { compressImage } from "../../lib/compress";
 import { PollModal } from "./PollModal";
 
 export function ChatComposer() {
@@ -81,9 +82,12 @@ export function ChatComposer() {
     event.target.value = "";
     if (!file) return;
 
+    // Shrink photos before upload so sends are fast on any connection.
+    const compressed = await compressImage(file);
+
     const didSend = await sendMediaMessage({
       conversationId: activeConversationId,
-      file,
+      file: compressed,
     });
 
     if (didSend) playSoundIfEnabled();

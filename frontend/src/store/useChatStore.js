@@ -16,6 +16,91 @@ const typingTimers = new Map();
 // Delivery receipts are coalesced per conversation.
 const deliveredTimers = new Map();
 
+// Original payloads of optimistic messages, kept only in memory so a failed
+// send can be retried (works even if the user navigates elsewhere first).
+const pendingPayloads = new Map();
+
+/** Chat-preview text for the sidebar ("📷 Photo", "📊 Did we go?" …). */
+function previewText(message) {
+  if (message.text) return message.text;
+  const kind = messageKind(message);
+  return kind === "image"
+    ? "📷 Photo"
+    : kind === "video"
+      ? "🎥 Video"
+      : kind === "audio"
+        ? "🎙️ Voice message"
+        : kind === "poll"
+          ? `📊 ${message.poll?.question || "Poll"}`
+          : "";
+}
+
+/** Free the local object URLs of a message we no longer render. */
+function revokeMediaPreviews(message) {
+  for (const key of ["image", "video", "audio"]) {
+    if (typeof message?.[key] === "string" && message[key].startsWith("blob:")) {
+      URL.revokeObjectURL(message[key]);
+    }
+  }
+}
+
+function buildOptimisticMessage({
+  clientId,
+  conversationId,
+  me,
+  text = "",
+  file = null,
+  audioBlob = null,
+  audioDuration = 0,
+  replyTo = null,
+}) {
+  const previewUrl =
+    file || audioBlob ? URL.createObjectURL(file || audioBlob) : null;
+
+  const optimistic = {
+    _id: `local-${clientId}`,
+    clientId,
+    conversationId: String(conversationId),
+    senderId: me._id,
+    sender: { _id: me._id, fullName: me.fullName, profilePic: me.profilePic },
+    text,
+    replyTo: replyTo
+      ? {
+          messageId: replyTo._id,
+          senderId: replyTo.senderId,
+          senderName: replyTo.sender?.fullName || "",
+          text: replyTo.text || "",
+          kind: messageKind(replyTo),
+        }
+      : null,
+    reactions: [],
+    readBy: [],
+    deliveredTo: [],
+    editedAt: null,
+    deletedAt: null,
+    system: false,
+    poll: null,
+    pending: true,
+    failed: false,
+    createdAt: new Date().toISOString(),
+    image: "",
+    video: "",
+    audio: "",
+    audioDuration: 0,
+  };
+
+  if (file) {
+    const type = file.type || "";
+    if (type.startsWith("video/")) optimistic.video = previewUrl;
+    else optimistic.image = previewUrl;
+  } else if (audioBlob) {
+    optimistic.audio = previewUrl;
+    optimistic.audioDuration = audioDuration;
+  }
+
+  return optimistic;
+}
+
 function sortConversations(list) {
   return [...list].sort(
     (a, b) =>
@@ -305,6 +390,21 @@ export const useChatStore = create(
           if (String(state.activeConversationId) !== String(conversationId)) {
             return {};
           }
+
+          // A real message arriving with a clientId is the server's version of
+          // one of our optimistic messages: replace it in place.
+          if (message.clientId) {
+            const index = state.messages.findIndex(
+              (item) => item.pending && item.clientId === message.clientId,
+            );
+            if (index >= 0) {
+              revokeMediaPreviews(state.messages[index]);
+              const next = state.messages.slice();
+              next[index] = message;
+              return { messages: next };
+            }
+          }
+
           if (state.messages.some((item) => item._id === message._id)) return {};
           return { messages: [...state.messages, message] };
         });
@@ -323,42 +423,162 @@ export const useChatStore = create(
         });
       },
 
-      sendMessage: async ({ conversationId, text = "", file = null, audioBlob = null, audioDuration = 0 }) => {
+      sendMessage: async (args = {}) => {
+        const { retryOf = null, ...firstAttempt } = args;
+        const conversationId = String(
+          retryOf?.conversationId || firstAttempt.conversationId || "",
+        );
         if (!conversationId) return false;
 
-        const { replyTo } = get();
-        const form = new FormData();
-        const trimmed = String(text || "").trim();
+        const me = useAuthStore.getState().authUser;
+        if (!me) return false;
 
-        if (trimmed) form.append("text", trimmed);
-        form.append("clientId", newClientId());
+        const { text = "", file = null, audioBlob = null, audioDuration = 0 } =
+          retryOf ? retryOf.payload : firstAttempt;
+        // A retry carries the replyTo captured at first attempt (the live
+        // composer state was cleared long ago).
+        const replyTo = retryOf ? retryOf.replyTo ?? null : get().replyTo;
+        // A retry keeps its clientId: if the first attempt actually reached
+        // the server (lost response), idempotency still prevents duplicates.
+        const clientId = retryOf?.clientId || firstAttempt.clientId || newClientId();
 
-        if (file) form.append("media", file);
+        let form = retryOf?.form ?? null;
+        if (!form) {
+          form = new FormData();
+          const trimmed = String(text || "").trim();
 
-        if (audioBlob) {
-          const type = audioBlob.type || "audio/webm";
-          const extension = type.includes("mp4") ? "m4a" : "webm";
-          form.append(
-            "media",
-            new File([audioBlob], `voice-${Date.now()}.${extension}`, { type }),
-          );
-          form.append("audioDuration", String(Math.round(audioDuration || 0)));
+          if (trimmed) form.append("text", trimmed);
+          form.append("clientId", clientId);
+
+          if (file) form.append("media", file);
+
+          if (audioBlob) {
+            const type = audioBlob.type || "audio/webm";
+            const extension = type.includes("mp4") ? "m4a" : "webm";
+            form.append(
+              "media",
+              new File([audioBlob], `voice-${Date.now()}.${extension}`, { type }),
+            );
+            form.append("audioDuration", String(Math.round(audioDuration || 0)));
+          }
+
+          if (replyTo?._id) form.append("replyToId", replyTo._id);
         }
 
-        if (replyTo?._id) form.append("replyToId", replyTo._id);
+        // Snapshot so a failed send can be retried from anywhere in the UI.
+        pendingPayloads.set(clientId, {
+          conversationId,
+          clientId,
+          replyTo,
+          payload: { text, file, audioBlob, audioDuration },
+          form,
+        });
+
+        const optimistic = buildOptimisticMessage({
+          clientId,
+          conversationId,
+          me,
+          text: String(text || "").trim(),
+          file,
+          audioBlob,
+          audioDuration,
+          replyTo,
+        });
+
+        // Show it instantly; the server confirmation swaps it out by clientId.
+        get().appendMessage(conversationId, optimistic);
+
+        set({ composerText: "", replyTo: null });
+
+        // Keep the sidebar preview moving too, so nothing waits on the wire.
+        set((state) => ({
+          conversations: sortConversations(
+            state.conversations.map((conversation) =>
+              conversation._id === conversationId
+                ? {
+                    ...conversation,
+                    lastMessage: {
+                      text: previewText(optimistic),
+                      senderId: me._id,
+                      senderName: me.fullName,
+                      kind: messageKind(optimistic),
+                      createdAt: optimistic.createdAt,
+                    },
+                    lastMessageAt: optimistic.createdAt,
+                  }
+                : conversation,
+            ),
+          ),
+        }));
 
         try {
           const res = await axiosInstance.post(
             `/conversations/${conversationId}/messages`,
             form,
           );
+          pendingPayloads.delete(clientId);
           get().appendMessage(conversationId, res.data);
-          set({ composerText: "", replyTo: null });
           return true;
         } catch (error) {
-          toast.error(error.response?.data?.message || "Message failed to send");
+          // Keep the payload so the failed bubble can be retried.
+
+          set((state) => ({
+            messages:
+              String(state.activeConversationId) === conversationId
+                ? state.messages.map((message) =>
+                    message.clientId === clientId && message.pending
+                      ? { ...message, pending: false, failed: true }
+                      : message,
+                  )
+                : state.messages,
+          }));
+
+          toast.error(
+            error.response?.data?.message || "Message failed to send",
+          );
           return false;
         }
+      },
+
+      retryMessage: async (clientId) => {
+        const record = pendingPayloads.get(clientId);
+        const me = useAuthStore.getState().authUser;
+
+        if (!record || !me) {
+          // No payload left (e.g. after a reload): just drop the dead bubble.
+          set((state) => ({
+            messages: state.messages.map((message) => {
+              if (message.clientId === clientId) {
+                revokeMediaPreviews(message);
+                return null;
+              }
+              return message;
+            }).filter(Boolean),
+          }));
+          pendingPayloads.delete(clientId);
+          return false;
+        }
+
+        pendingPayloads.delete(clientId);
+        // Remove the failed copy; the retry re-adds it optimistically.
+        set((state) => ({
+          messages: state.messages
+            .map((message) => {
+              if (message.clientId === clientId) {
+                revokeMediaPreviews(message);
+                return null;
+              }
+              return message;
+            })
+            .filter(Boolean),
+        }));
+
+        return get().sendMessage({
+          conversationId: record.conversationId,
+          clientId: record.clientId,
+          replyTo: record.replyTo,
+          ...record.payload,
+        });
       },
 
       sendTextMessage: async (conversationId) => {
@@ -564,17 +784,7 @@ export const useChatStore = create(
                     ? {
                         ...conversation,
                         lastMessage: {
-                          text:
-                            message.text ||
-                            (messageKind(message) === "image"
-                              ? "📷 Photo"
-                              : messageKind(message) === "video"
-                                ? "🎥 Video"
-                                : messageKind(message) === "audio"
-                                  ? "🎙️ Voice message"
-                                  : messageKind(message) === "poll"
-                                    ? `📊 ${message.poll?.question || "Poll"}`
-                                    : ""),
+                          text: previewText(message),
                           senderId: message.senderId,
                           senderName: message.sender?.fullName || "",
                           kind: messageKind(message),
