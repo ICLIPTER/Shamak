@@ -11,7 +11,7 @@ a photo album, and installable PWA push notifications.
 | -------- | -------------------------------------------------------------------- |
 | Frontend | React 19, Vite, HeroUI v3, Tailwind, Zustand, Socket.IO client        |
 | Backend  | Node.js (ESM), Express 5, Socket.IO, Mongoose                         |
-| Auth     | Clerk (session tokens for HTTP + socket handshake, webhooks for sync) |
+| Auth     | Self-hosted email + password: bcrypt hashes, 15-min JWT access tokens via `Authorization: Bearer`, 30-day refresh cookie |
 | Media    | ImageKit (images, video, voice notes)                                 |
 | Push     | Web Push / VAPID with a service worker                                |
 
@@ -25,8 +25,8 @@ Dockerfile  Multi-stage build: SPA -> backend/public, API -> dist/
 
 ## Local development
 
-Requirements: Node.js 20+, a MongoDB database, a Clerk application, and
-(optional) an ImageKit account for media uploads.
+Requirements: Node.js 20+, a MongoDB database, and (optional) an ImageKit
+account for media uploads.
 
 ```bash
 # 1. API
@@ -37,7 +37,7 @@ npm run dev                   # http://localhost:3000
 
 # 2. SPA (second terminal)
 cd frontend
-cp .env.example .env          # add VITE_CLERK_PUBLISHABLE_KEY
+cp .env.example .env
 npm install
 npm run dev                   # http://localhost:5173
 ```
@@ -53,22 +53,22 @@ npm run dev                   # http://localhost:5173
 | `MONGO_URI`                    | MongoDB connection string                                     |
 | `FRONTEND_URL`                 | Allowed browser origin(s); comma-separated for multiple       |
 | `SELF_URL`                     | Public API URL, used by the keep-alive ping                   |
-| `CLERK_PUBLISHABLE_KEY`        | Clerk publishable key                                         |
-| `CLERK_SECRET_KEY`             | Clerk secret key                                              |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Verifies `POST /api/webhooks/clerk`                           |
+| `JWT_ACCESS_SECRET`            | Signs 15-minute access tokens (required in production)        |
+| `JWT_REFRESH_SECRET`           | Signs 30-day refresh cookies (required in production)         |
 | `IMAGEKIT_PRIVATE_KEY`         | Enables chat media uploads                                    |
 | `VAPID_PUBLIC_KEY`             | Web Push public key                                           |
 | `VAPID_PRIVATE_KEY`            | Web Push private key                                          |
 | `VAPID_SUBJECT`                | `mailto:` contact for push services                           |
 
-Generate push keys with `npx web-push generate-vapid-keys`.
+Generate push keys with `npx web-push generate-vapid-keys` and generate each
+auth secret with
+`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
 `frontend/.env`
 
-| Variable                     | Purpose                                             |
-| ---------------------------- | --------------------------------------------------- |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key                               |
-| `VITE_API_URL`               | Optional API origin when the SPA is hosted separately |
+| Variable       | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| `VITE_API_URL` | Optional API origin when the SPA is hosted separately  |
 
 ## First run: becoming the admin
 
@@ -84,13 +84,20 @@ To promote an existing account manually:
 db.users.updateOne({ email: "you@example.com" }, { $set: { role: "admin" } })
 ```
 
-## Clerk setup
+## Auth: accounts, invites and migrated members
 
-1. Create a Clerk application and copy the publishable/secret keys.
-2. Add a webhook pointing at `https://<your-api>/api/webhooks/clerk` with the
-   `user.created`, `user.updated`, and `user.deleted` events, then copy the
-   signing secret into `CLERK_WEBHOOK_SIGNING_SECRET`.
-3. Add your deployed origin to the Clerk allowed origins list.
+- **Sign-up** (`/auth` → "Create an account"): the first account in the
+  database becomes the family admin automatically. Other new accounts wait on
+  the approval screen until an admin approves them, or until they redeem an
+  invite code that was created with a matching email.
+- **Logging in**: email + password. Wrong credentials always return the same
+  "Wrong email or password" answer (no email enumeration).
+- **Migrated Clerk-era members** have no password yet — the first login
+  attempt explains this, and an admin generates a temporary 8-character
+  password in **Family hub** (key icon next to the member). Members can start
+  chatting right away with the temp password.
+- Sessions: a 15-minute access token is kept on the device and refreshed
+  silently by an HttpOnly cookie; a failed refresh signs the user out.
 
 ## Production
 
