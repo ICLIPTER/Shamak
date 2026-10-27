@@ -9,7 +9,7 @@ import { ThemeProvider } from "./context/ThemeContext.jsx";
 import PageLoader from "./components/PageLoader.jsx";
 import { useAuthStore } from "./store/useAuthStore.js";
 import { setTokenProvider } from "./lib/axios.js";
-import { registerServiceWorker } from "./lib/push.js";
+import { registerServiceWorker, unregisterServiceWorkers } from "./lib/push.js";
 
 // Route-level code splitting keeps the initial download small on phones.
 const AuthPage = lazy(() => import("./pages/AuthPage.jsx"));
@@ -46,8 +46,12 @@ function App() {
   }, [checkAuth, clearAuth, isLoaded, isSignedIn]);
 
   // PWA: register once in production so notifications + offline shell work.
+  // In dev, actively unregister anything left over — a stale worker caches
+  // Vite modules "cache-first" with no revalidation and makes the tab serve
+  // dead module URLs until a hard refresh.
   useEffect(() => {
     if (import.meta.env.PROD) registerServiceWorker();
+    else unregisterServiceWorkers();
   }, []);
 
   // The Clerk webhook may still be syncing a brand-new account. Retry quietly

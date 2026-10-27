@@ -22,6 +22,16 @@ async function consumeInvite(invite) {
 
 export async function listInvites(req, res) {
   try {
+    // Self-healing sweep: consumed or expired codes shouldn't sit on the
+    // admin screen (legacy ones predate the delete-on-redeem behavior, and
+    // TTL cleanup isn't instant).
+    await Invite.deleteMany({
+      $or: [
+        { usedBy: { $ne: null } },
+        { expiresAt: { $ne: null, $lte: new Date() } },
+      ],
+    });
+
     const invites = await Invite.find()
       .populate("createdBy", "fullName")
       .populate("usedBy", "fullName")

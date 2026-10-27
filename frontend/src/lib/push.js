@@ -31,6 +31,31 @@ export async function registerServiceWorker() {
   }
 }
 
+/**
+ * Remove any service worker previously registered on this origin (only called
+ * in dev). Without this, an old worker keeps serving cached modules and the
+ * every-load app shell, breaking the dev server after code changes.
+ */
+export async function unregisterServiceWorkers() {
+  if (!("serviceWorker" in navigator)) return;
+
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const registration of registrations) {
+      await registration.unregister();
+    }
+    if (registrations.length > 0) {
+      // The worker's cache storage survives unregistering — drop it too.
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    }
+  } catch (error) {
+    console.error("Service worker cleanup failed:", error.message);
+  }
+}
+
 /** Returns a usable registration, registering the worker on demand. */
 async function getRegistration() {
   if (!("serviceWorker" in navigator)) return null;

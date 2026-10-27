@@ -512,6 +512,16 @@ function MembersTab() {
     }
   };
 
+  const deleteInvite = async (id) => {
+    try {
+      await axiosInstance.delete(`/invites/${id}`);
+      setInvites((current) => current.filter((invite) => invite._id !== id));
+      toast.success("Invite deleted");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not delete invite");
+    }
+  };
+
   const toggleRole = async (member) => {
     const nextRole = member.role === "admin" ? "member" : "admin";
 
@@ -661,17 +671,21 @@ function MembersTab() {
                     {invite.code}
                   </p>
                   <p className="truncate text-[11px] text-muted">
-                    {invite.used
-                      ? `Used by ${invite.usedBy}`
-                      : invite.email || "Any family email"}
-                    {" · "}
-                    {invite.role}
+                    {[
+                      invite.used
+                        ? `Used by ${invite.usedBy}`
+                        : invite.email || "Any family email",
+                      invite.role,
+                      invite.expiresAt
+                        ? `expires ${new Date(invite.expiresAt).toLocaleDateString()}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
 
-                {invite.used ? (
-                  <UserCheckIcon className="size-4 text-success" />
-                ) : (
+                {invite.used ? null : (
                   <button
                     type="button"
                     onClick={() => copyCode(invite.code)}
@@ -681,6 +695,15 @@ function MembersTab() {
                     <CopyIcon className="size-4" />
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => deleteInvite(invite._id)}
+                  className="text-muted hover:text-danger"
+                  aria-label="Delete invite code"
+                >
+                  <Trash2Icon className="size-4" />
+                </button>
               </div>
             ))
           )}
