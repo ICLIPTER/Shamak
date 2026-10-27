@@ -456,6 +456,17 @@ function MembersTab() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    // Invites are consumed live (redemption or webhook auto-approval);
+    // keep the admin's lists current without a manual reload.
+    const socket = useAuthStore.getState().socket;
+    if (!socket) return undefined;
+
+    const reload = () => load();
+    socket.on("invite:changed", reload);
+    return () => socket.off("invite:changed", reload);
+  }, [load]);
+
   const approve = async (id) => {
     try {
       await axiosInstance.post(`/users/${id}/approve`);

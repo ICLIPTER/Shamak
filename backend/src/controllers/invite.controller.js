@@ -1,5 +1,24 @@
 import Invite from "../models/invite.model.js";
 import User from "../models/user.model.js";
+import { emitToUser } from "../lib/socket.js";
+import { invalidateUserCache } from "../middleware/auth.middleware.js";
+
+/** Notify the inviting admin (if online) that a code changed state. */
+function notifyInviteChange(invite) {
+  const creatorId = typeof invite?.createdBy === "object"
+    ? invite.createdBy?._id
+    : invite?.createdBy;
+  if (creatorId) emitToUser(creatorId, "invite:changed", { ok: true });
+}
+
+/** Consumed codes must not linger on the admin screen. Best-effort removal. */
+async function consumeInvite(invite) {
+  invite.usedBy = invite.usedBy || null;
+  invite.usedAt = invite.usedAt || new Date();
+  await invite.save();
+  notifyInviteChange(invite);
+  return Invite.deleteOne({ _id: invite._id }).catch(() => null);
+}
 
 export async function listInvites(req, res) {
   try {
@@ -133,9 +152,12 @@ export async function redeemInvite(req, res) {
       { new: true },
     );
 
+    // The redeemer's own next request must see the unlocked account now.
+    invalidateUserCache(req.user.clerkId);
+
+    // Mark used, then remove it from admin lists entirely.
     invite.usedBy = user._id;
-    invite.usedAt = new Date();
-    await invite.save();
+    await consumeInvite(invite);
 
     res.status(200).json({
       _id: String(user._id),

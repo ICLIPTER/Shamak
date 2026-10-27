@@ -35,6 +35,14 @@ function cacheUser(clerkId, user) {
 }
 
 /**
+ * Drop a cached user so admin actions (approve/reject/role changes) take
+ * effect for that person's next request immediately, not up to TTL later.
+ */
+export function invalidateUserCache(clerkId) {
+  if (clerkId) userCache.delete(String(clerkId));
+}
+
+/**
  * Resolves the Clerk session into a family member document.
  * Does NOT enforce approval — used by the auth bootstrap and invite redemption
  * so a pending user can still see their status and enter a code.

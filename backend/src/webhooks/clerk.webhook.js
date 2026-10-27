@@ -2,6 +2,8 @@ import express from "express";
 import User from "../models/user.model.js";
 import Invite from "../models/invite.model.js";
 import { verifyWebhook } from "@clerk/backend/webhooks";
+import { invalidateUserCache } from "../middleware/auth.middleware.js";
+import { emitToUser } from "../lib/socket.js";
 
 const router = express.Router();
 
@@ -74,9 +76,12 @@ router.post("/", async (req, res) => {
         );
 
         if (invite && user) {
+          emitToUser(invite.createdBy, "invite:changed", { ok: true });
+          // Consumed codes must not linger on the admin screen.
           invite.usedBy = user._id;
           invite.usedAt = new Date();
           await invite.save();
+          await Invite.deleteOne({ _id: invite._id }).catch(() => {});
         }
       } else {
         // Never clobber approval/role on an update.
@@ -89,10 +94,15 @@ router.post("/", async (req, res) => {
           { upsert: true },
         );
       }
+
+      invalidateUserCache(u.id);
     }
 
     if (evt.type === "user.deleted") {
-      if (evt.data.id) await User.findOneAndDelete({ clerkId: evt.data.id });
+      if (evt.data.id) {
+        await User.findOneAndDelete({ clerkId: evt.data.id });
+        invalidateUserCache(evt.data.id);
+      }
     }
 
     res.status(200).json({ received: true });

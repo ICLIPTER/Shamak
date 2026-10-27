@@ -31,7 +31,10 @@ const inviteSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       default: () => new Date(Date.now() + 1000 * 60 * 60 * 24 * 14), // 14 days
-      index: true,
+      // MongoDB deletes expired documents automatically, so stale codes stop
+      // appearing. Named differently from the legacy plain index so the TTL
+      // option attaches cleanly.
+      index: { name: "expiresAt_ttl", expireAfterSeconds: 0 },
     },
   },
   { timestamps: true },

@@ -1,5 +1,6 @@
 import User from "../models/user.model.js";
 import { emitToUser } from "../lib/socket.js";
+import { invalidateUserCache } from "../middleware/auth.middleware.js";
 
 const PUBLIC_FIELDS =
   "fullName profilePic email role birthday relation bio phone lastSeenAt createdAt";
@@ -103,16 +104,20 @@ export async function approveUser(req, res) {
       req.params.id,
       { $set: { isApproved: true } },
       { new: true },
-    ).select(PUBLIC_FIELDS);
+    ).select(`${PUBLIC_FIELDS} clerkId`);
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
     }
 
+    // The person's next request must see isApproved immediately.
+    invalidateUserCache(user.clerkId);
     emitToUser(user._id, "account:approved", { ok: true });
 
-    res.status(200).json(user);
+    const response = user.toObject();
+    delete response.clerkId;
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error in approveUser:", error.message);
     res.status(500).json({ message: "Internal server error" });
@@ -121,7 +126,7 @@ export async function approveUser(req, res) {
 
 export async function rejectUser(req, res) {
   try {
-    const user = await User.findById(req.params.id).select("_id role");
+    const user = await User.findById(req.params.id).select("_id role clerkId");
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
@@ -134,6 +139,8 @@ export async function rejectUser(req, res) {
     }
 
     await User.deleteOne({ _id: user._id });
+    // A deleted account must not keep serving requests from a stale cache.
+    invalidateUserCache(user.clerkId);
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error("Error in rejectUser:", error.message);
@@ -153,14 +160,17 @@ export async function setRole(req, res) {
       req.params.id,
       { $set: { role } },
       { new: true },
-    ).select(PUBLIC_FIELDS);
+    ).select(`${PUBLIC_FIELDS} clerkId`);
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
     }
 
-    res.status(200).json(user);
+    invalidateUserCache(user.clerkId);
+    const response = user.toObject();
+    delete response.clerkId;
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error in setRole:", error.message);
     res.status(500).json({ message: "Internal server error" });
