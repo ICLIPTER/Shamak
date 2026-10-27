@@ -47,7 +47,7 @@ function SearchContent({ modal, conversationId }) {
         <SearchField fullWidth variant="secondary" value={query} onChange={setQuery}>
           <SearchField.Group className="rounded-xl">
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder="Search messages" />
+            <SearchField.Input placeholder="Search messages" aria-label="Search messages" />
             {query ? <SearchField.ClearButton /> : null}
           </SearchField.Group>
         </SearchField>

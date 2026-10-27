@@ -124,7 +124,7 @@ export function NewChatModal({ state }) {
               >
                 <SearchField.Group className="rounded-xl">
                   <SearchField.SearchIcon />
-                  <SearchField.Input placeholder="Search family" />
+                  <SearchField.Input placeholder="Search family" aria-label="Search family" />
                   {query ? <SearchField.ClearButton /> : null}
                 </SearchField.Group>
               </SearchField>
