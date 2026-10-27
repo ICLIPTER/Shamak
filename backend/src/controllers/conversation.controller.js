@@ -535,18 +535,11 @@ export async function markRead(req, res) {
     if (existing) existing.lastReadAt = now;
     else conversation.reads.push({ userId: req.user._id, lastReadAt: now });
 
+    // One small write to one document. (Read receipts used to fan out over
+    // every unread message here — that multiplied writes per chat open.)
     await conversation.save();
 
-    await Message.updateMany(
-      {
-        conversationId: conversation._id,
-        senderId: { $ne: req.user._id },
-        "readBy.userId": { $ne: req.user._id },
-        deletedAt: null,
-      },
-      { $push: { readBy: { userId: req.user._id, at: now } } },
-    );
-
+    // Clients compute their own ticks from this event + conversation.reads.
     emitToConversation(conversation._id, "conversation:read", {
       conversationId: String(conversation._id),
       userId: String(req.user._id),

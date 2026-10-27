@@ -87,6 +87,35 @@ function lastMessageKind(message) {
   return "text";
 }
 
+/**
+ * Read receipts used to be pushed into every message document (one updateMany
+ * per chat open). They now come from conversation.reads[].lastReadAt — each
+ * member's single timestamp. Stored per-message receipts (pre-migration) are
+ * merged in, so no history is lost and the payload shape is unchanged.
+ */
+function mergeReadReceipts(docs, reads) {
+  for (const doc of docs) {
+    const byUser = new Map(
+      (doc.readBy || []).map((receipt) => [String(receipt.userId), receipt.at]),
+    );
+
+    for (const read of reads || []) {
+      const userId = String(read.userId || "");
+      if (!userId) continue;
+      const lastReadAt = read.lastReadAt;
+      if (
+        lastReadAt &&
+        new Date(lastReadAt) >= new Date(doc.createdAt) &&
+        !byUser.has(userId)
+      ) {
+        byUser.set(userId, lastReadAt);
+      }
+    }
+
+    doc.readBy = [...byUser].map(([userId, at]) => ({ userId, at }));
+  }
+}
+
 async function touchConversation(conversation, message) {
   const preview = message.text?.trim() || "";
   await Conversation.updateOne(
@@ -115,7 +144,7 @@ export async function getMessages(req, res) {
     const conversation = await Conversation.findOne({
       _id: conversationId,
       members: req.user._id,
-    }).select("_id");
+    }).select("_id reads");
 
     if (!conversation) {
       res.status(404).json({ message: "Conversation not found" });
@@ -141,6 +170,11 @@ export async function getMessages(req, res) {
 
     const hasMore = docs.length > limit;
     const page = hasMore ? docs.slice(0, limit) : docs;
+
+    // Read receipts live in conversation.reads (one tiny doc). Old documents
+    // may still carry stored receipts; both are merged into readBy so the
+    // wire format is unchanged.
+    mergeReadReceipts(page, conversation.reads);
 
     // Return oldest → newest so the UI can append directly.
     const messages = page.reverse().map(serializeMessage);
@@ -799,7 +833,8 @@ export async function createPoll(req, res) {
   }
 }
 
-/** Mark every message in a conversation as delivered to this user. */
+/** Mark messages delivered — the client-side delivery state is computed from
+ * conversation state now, so this is a lightweight no-write acknowledgement. */
 export async function markDelivered(req, res) {
   try {
     const conversationId = toObjectId(req.params.id);
@@ -814,15 +849,6 @@ export async function markDelivered(req, res) {
     }
 
     const now = new Date();
-    await Message.updateMany(
-      {
-        conversationId,
-        senderId: { $ne: req.user._id },
-        "deliveredTo.userId": { $ne: req.user._id },
-      },
-      { $push: { deliveredTo: { userId: req.user._id, at: now } } },
-    );
-
     emitToUser(req.user._id, "messages:delivered", { at: now });
 
     res.status(200).json({ ok: true });

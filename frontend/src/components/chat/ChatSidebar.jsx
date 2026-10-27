@@ -166,7 +166,7 @@ export function ChatSidebar({ onOpenFamily, onOpenNewChat, onOpenProfile }) {
           >
             <SearchField.Group className="rounded-xl">
               <SearchField.SearchIcon />
-              <SearchField.Input placeholder="Search family" />
+              <SearchField.Input placeholder="Search family" aria-label="Search family" />
               {searchQuery ? <SearchField.ClearButton /> : null}
             </SearchField.Group>
           </SearchField>
