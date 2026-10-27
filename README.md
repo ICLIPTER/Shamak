@@ -119,28 +119,49 @@ owner's master credentials — they live outside the database:
 
 ## Production
 
-### Docker (single service)
+### Render (recommended — Blueprint deploys everything)
 
-The root `Dockerfile` builds the SPA, copies it to `backend/public`, compiles
-the API to `backend/dist`, and runs everything on one port.
+One service serves both the API and the built SPA from a single port. Commit
+this repo, then:
+
+1. Push the repo to GitHub, on Render choose **New + → Blueprint** and pick
+   the repository. `render.yaml` at the root configures the Docker service,
+   the `/health` health check, and strong random JWT secrets automatically.
+2. Fill in the prompted secrets on first deploy:
+
+   | Prompt                   | Fill with                                             |
+   | ------------------------ | ----------------------------------------------------- |
+   | `MONGO_URI`              | Your MongoDB connection string                        |
+   | `OWNER_EMAIL`            | Your email (master credentials)                       |
+   | `OWNER_PASSWORD`         | Your master password                                  |
+   | `IMAGEKIT_PRIVATE_KEY`   | ImageKit private key                                  |
+   | `VAPID_PUBLIC_KEY`       | Web Push public key                                   |
+   | `VAPID_PRIVATE_KEY`      | Web Push private key                                  |
+   | `SELF_URL`               | The service's public URL (fills in after first deploy) |
+
+3. Generate push keys with `npx web-push generate-vapid-keys` if you do not
+   have them; tokens/secrets **are not** stored in the repo.
+
+`SELF_URL` is only used by the free-tier keep-alive ping. Without it the
+service still works — it just spins down when idle.
+
+### Docker (any host)
 
 ```bash
-docker build \
-  --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_live_xxx \
-  -t shamak .
+docker build -t shamak .
 
 docker run -p 3001:3001 \
   -e NODE_ENV=production \
   -e MONGO_URI="mongodb+srv://..." \
-  -e FRONTEND_URL="https://chat.example.com" \
-  -e SELF_URL="https://chat.example.com" \
-  -e CLERK_PUBLISHABLE_KEY="pk_live_xxx" \
-  -e CLERK_SECRET_KEY="sk_live_xxx" \
-  -e CLERK_WEBHOOK_SIGNING_SECRET="whsec_xxx" \
+  -e OWNER_EMAIL="you@example.com" \
+  -e OWNER_PASSWORD="your-master-password" \
+  -e JWT_ACCESS_SECRET="<48-byte hex>" \
+  -e JWT_REFRESH_SECRET="<48-byte hex>" \
   -e IMAGEKIT_PRIVATE_KEY="private_xxx" \
   -e VAPID_PUBLIC_KEY="..." \
   -e VAPID_PRIVATE_KEY="..." \
   -e VAPID_SUBJECT="mailto:family@example.com" \
+  -e SELF_URL="https://chat.example.com" \
   shamak
 ```
 

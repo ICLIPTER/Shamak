@@ -38,6 +38,8 @@ if (IS_PROD) {
     "MONGO_URI",
     "JWT_ACCESS_SECRET",
     "JWT_REFRESH_SECRET",
+    "OWNER_EMAIL",
+    "OWNER_PASSWORD",
   ];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) {

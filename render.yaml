@@ -1,0 +1,38 @@
+# Render Blueprint — deploys Shamak as one Docker service (API + SPA).
+# Commit this file, then on Render: New + → Blueprint → pick this repo.
+# Secrets marked `sync: false` are prompted for on first deploy.
+
+services:
+  - type: web
+    name: shamak
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      # The owner's master credentials (indefinite admin recovery).
+      - key: OWNER_EMAIL
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false
+      # Strong random secrets generated per environment.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: IMAGEKIT_PRIVATE_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:family@shamak.app
+      # Set after the first deploy, to the service's public URL, so the
+      # free-tier keep-alive ping keeps the service warm.
+      - key: SELF_URL
+        sync: false

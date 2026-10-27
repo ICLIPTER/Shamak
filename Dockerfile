@@ -9,9 +9,6 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 COPY frontend/ ./
 # Empty = browser calls /api on the same host as the page.
 ENV VITE_API_URL=
-# Public Clerk key is embedded in client JS.
-ARG VITE_CLERK_PUBLISHABLE_KEY
-ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 RUN npm run build
 
 # --- Stage 2: build the API bundle ---
