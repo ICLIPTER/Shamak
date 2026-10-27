@@ -293,7 +293,17 @@ export async function sendMessage(req, res) {
       clientId: clientId || undefined,
     });
 
-    const populated = await message.populate("senderId", SENDER_FIELDS);
+    // The sender is the requester — the auth middleware already loaded their
+    // profile, so skip a full populate round trip to the database. (On a
+    // cloud host a saved round trip here is hundreds of ms.)
+    const populated = {
+      ...message.toObject(),
+      senderId: {
+        _id: req.user._id,
+        fullName: req.user.fullName,
+        profilePic: req.user.profilePic || "",
+      },
+    };
     const serialized = serializeMessage(populated);
 
     // Fast path first: broadcast + respond before any side work.

@@ -139,7 +139,9 @@ export const useAuthStore = create((set, get) => ({
       // Socket.io calls this again on every reconnect, so an access token
       // renewed by the axios interceptor is picked up automatically.
       auth: (callback) => callback({ token: getToken() }),
-      transports: ["websocket", "polling"],
+      // WebSocket only: long-polling dwell on cloud proxies adds seconds to
+      // message delivery. Render supports WebSocket natively.
+      transports: ["websocket"],
       reconnection: true,
       reconnectionDelay: 800,
       reconnectionDelayMax: 5000,
