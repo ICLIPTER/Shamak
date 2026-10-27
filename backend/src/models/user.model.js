@@ -2,10 +2,12 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
+    // Legacy Clerk accounts keep this. Self-hosted accounts simply don't have
+    // it (missing fields bypass the unique index, null would not).
     clerkId: {
       type: String,
-      required: true,
       unique: true,
+      default: undefined,
     },
 
     email: {
@@ -14,6 +16,13 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+    },
+
+    // bcrypt hash; select:false keeps it out of every normal read.
+    passwordHash: {
+      type: String,
+      default: null,
+      select: false,
     },
 
     fullName: {

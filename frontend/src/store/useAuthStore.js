@@ -2,6 +2,11 @@ import { create } from "zustand";
 import { io } from "socket.io-client";
 
 import { axiosInstance, API_ORIGIN } from "../lib/axios";
+import {
+  SESSION_EXPIRED_EVENT,
+  getToken,
+  setToken,
+} from "../lib/auth-token.js";
 
 // Empty string means "same origin as the page".
 const BASE_URL = API_ORIGIN || undefined;
@@ -9,20 +14,64 @@ const BASE_URL = API_ORIGIN || undefined;
 /**
  * Auth + realtime connection.
  *
- * The socket authenticates with a Clerk session token; the server never trusts
- * a client-provided user id.
+ * The socket authenticates with our own access token (never the
+ * client-provided user id). The HttpOnly refresh cookie is not accessible to
+ * JavaScript by design; the axios interceptor renews the access token using
+ * it whenever the API answers 401.
  */
 export const useAuthStore = create((set, get) => ({
+  // Mirrored so React re-renders when the session changes; localStorage
+  // survives reloads.
+  accessToken: getToken(),
   authUser: null,
-  isCheckingAuth: true,
+  isCheckingAuth: Boolean(getToken()),
   onlineUsers: [],
   socket: null,
-  tokenGetter: null,
   authError: null,
 
-  setTokenGetter: (tokenGetter) => set({ tokenGetter }),
+  setAuthUser: (authUser) => set({ authUser }),
+
+  /**
+   * Sign up. Returns { ok, needsApproval } — the server may create the
+   * account but still wait for admin approval.
+   */
+  register: async (fullName, email, password) => {
+    const res = await axiosInstance.post("/auth/register", {
+      fullName,
+      email,
+      password,
+    });
+    setToken(res.data.token);
+    set({
+      accessToken: res.data.token,
+      authUser: res.data.user,
+      authError: null,
+      isCheckingAuth: false,
+    });
+    if (res.data.user?.isApproved !== false) get().connectSocket();
+    return res.data.user;
+  },
+
+  /** Sign in. Throws so the form can show the server's error message. */
+  login: async (email, password) => {
+    const res = await axiosInstance.post("/auth/login", { email, password });
+    setToken(res.data.token);
+    set({
+      accessToken: res.data.token,
+      authUser: res.data.user,
+      authError: null,
+      isCheckingAuth: false,
+    });
+    if (res.data.user?.isApproved !== false) get().connectSocket();
+    return res.data.user;
+  },
 
   checkAuth: async () => {
+    if (!getToken()) {
+      set({ authUser: null, authError: null, isCheckingAuth: false });
+      return null;
+    }
+
     set({ isCheckingAuth: true, authError: null });
 
     try {
@@ -30,19 +79,23 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: res.data });
 
       if (res.data?.isApproved !== false) get().connectSocket();
+      return res.data;
     } catch (error) {
-      if (error.response?.status === 404) {
-        // Webhook hasn't synced the profile yet; keep the session but retry.
-        set({ authUser: null, authError: "SYNCING" });
-      } else {
-        console.error("Error in checkAuth:", error.message);
-        set({ authUser: null, authError: error.response?.data?.message || "AUTH" });
-      }
+      console.error("Error in checkAuth:", error.message);
+      set({
+        authUser: null,
+        authError: error.response?.data?.message || "AUTH",
+      });
+      return null;
     } finally {
       set({ isCheckingAuth: false });
     }
   },
 
+  /**
+   * Refresh the cached profile after a same-session change (e.g. an invite
+   * code unlocked the account).
+   */
   refreshAuth: async () => {
     try {
       const res = await axiosInstance.get("/auth/check");
@@ -55,11 +108,26 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  setAuthUser: (authUser) => set({ authUser }),
-
   clearAuth: () => {
-    set({ authUser: null, isCheckingAuth: false, onlineUsers: [], authError: null });
+    set({
+      accessToken: null,
+      authUser: null,
+      isCheckingAuth: false,
+      onlineUsers: [],
+      authError: null,
+    });
+    setToken(null);
     get().disconnectSocket();
+  },
+
+  /** Sign out: drop the refresh cookie server-side and forget everything. */
+  logout: async () => {
+    try {
+      await axiosInstance.post("/auth/logout");
+    } catch {
+      /* clearing locally is what matters */
+    }
+    get().clearAuth();
   },
 
   connectSocket: () => {
@@ -68,16 +136,9 @@ export const useAuthStore = create((set, get) => ({
     if (existing) existing.disconnect();
 
     const socket = io(BASE_URL, {
-      // Socket.io calls this again on every reconnect, so tokens stay fresh.
-      auth: async (callback) => {
-        const getToken = get().tokenGetter;
-        try {
-          const token = getToken ? await getToken() : null;
-          callback({ token });
-        } catch {
-          callback({ token: null });
-        }
-      },
+      // Socket.io calls this again on every reconnect, so an access token
+      // renewed by the axios interceptor is picked up automatically.
+      auth: (callback) => callback({ token: getToken() }),
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 800,
@@ -120,3 +181,10 @@ export const useAuthStore = create((set, get) => ({
     set({ socket: null });
   },
 }));
+
+// The axios interceptor fires this when the refresh cookie answers 401 —
+// i.e. the refresh token expired or was revoked. Drop everything so the
+// app shows the sign-in page.
+window.addEventListener(SESSION_EXPIRED_EVENT, () => {
+  useAuthStore.getState().clearAuth();
+});

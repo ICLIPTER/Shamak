@@ -477,8 +477,26 @@ function MembersTab() {
     }
   };
 
-  const reject = async (id) => {
+  // Generate a temporary password for an account (migrated from Clerk or a
+  // forgotten password). Shown once to the admin; auto-copied to clipboard.
+  const resetPassword = async (id) => {
     try {
+      const res = await axiosInstance.post(`/users/${id}/reset-password`);
+      const tempPassword = res.data?.tempPassword || "";
+      try {
+        await navigator.clipboard.writeText(tempPassword);
+        toast.success(`Temp password: ${tempPassword} — copied`, {
+          duration: 12000,
+        });
+      } catch {
+        toast.success(`Temp password: ${tempPassword}`, { duration: 12000 });
+      }
+    } catch {
+      toast.error("Could not reset password");
+    }
+  };
+
+  const reject = async (id) => {    try {
       await axiosInstance.delete(`/users/${id}/reject`);
       setPending((current) => current.filter((user) => user._id !== id));
     } catch {
@@ -623,6 +641,18 @@ function MembersTab() {
                     Admin
                   </span>
                 ) : null}
+
+                {member._id === meId ? null : (
+                  <button
+                    type="button"
+                    onClick={() => resetPassword(member._id)}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-muted transition hover:text-foreground"
+                    aria-label="Reset password"
+                    title="Reset password"
+                  >
+                    <KeyRoundIcon className="size-4" />
+                  </button>
+                )}
 
                 {member._id === meId ? null : (
                   <Button size="sm" variant="ghost" onPress={() => toggleRole(member)}>

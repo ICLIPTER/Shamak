@@ -16,8 +16,8 @@ function standardOptions(windowMs, limit) {
     limit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    // Render sits behind one proxy hop; clerkMiddleware-style trust proxy is
-    // already configured in server.js so req.ip resolves to the real client.
+    // Render sits behind one proxy hop; trust proxy is already configured in
+    // server.js so req.ip resolves to the real client.
     handler: (_req, res) => {
       res.status(429).json({
         message: "Too many requests — please slow down a little",
@@ -37,7 +37,7 @@ export const apiLimiter = rateLimit({
   ...standardOptions(5 * M, 900),
   keyGenerator: (req) => userOrIpKey(req),
   skip: (req) => {
-    // Liveness probes and Clerk's own webhook traffic must never be throttled.
+    // Liveness probes and third-party webhook traffic must never be throttled.
     if (req.path === "/health") return true;
     if (req.path.startsWith("/api/webhooks")) return true;
     return false;
@@ -60,4 +60,10 @@ export const redeemLimiter = rateLimit({
 export const writeLimiter = rateLimit({
   ...standardOptions(M, 120),
   keyGenerator: (req) => userOrIpKey(req),
+});
+
+/** Password endpoints: deny brute-force guessing of credentials. */
+export const authLimiter = rateLimit({
+  ...standardOptions(15 * M, 20),
+  keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip)}`,
 });

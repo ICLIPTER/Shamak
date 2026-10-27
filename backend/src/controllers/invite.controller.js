@@ -163,7 +163,7 @@ export async function redeemInvite(req, res) {
     );
 
     // The redeemer's own next request must see the unlocked account now.
-    invalidateUserCache(req.user.clerkId);
+    invalidateUserCache(req.user._id);
 
     // Mark used, then remove it from admin lists entirely.
     invite.usedBy = user._id;

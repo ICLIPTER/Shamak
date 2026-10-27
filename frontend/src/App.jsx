@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router";
-import { useAuth, useClerk } from "@clerk/react";
 import { Toaster } from "react-hot-toast";
 import { Button } from "@heroui/react";
 
@@ -8,7 +7,6 @@ import { WallpaperProvider } from "./context/WallpaperContext.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import PageLoader from "./components/PageLoader.jsx";
 import { useAuthStore } from "./store/useAuthStore.js";
-import { setTokenProvider } from "./lib/axios.js";
 import { registerServiceWorker, unregisterServiceWorkers } from "./lib/push.js";
 
 // Route-level code splitting keeps the initial download small on phones.
@@ -21,29 +19,22 @@ const PendingApproval = lazy(() =>
 );
 
 function App() {
-  const { isSignedIn, isLoaded, getToken } = useAuth();
-  const clerk = useClerk();
-
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const isCheckingAuth = useAuthStore((state) => state.isCheckingAuth);
   const clearAuth = useAuthStore((state) => state.clearAuth);
-  const setTokenGetter = useAuthStore((state) => state.setTokenGetter);
+  const logout = useAuthStore((state) => state.logout);
   const authUser = useAuthStore((state) => state.authUser);
-  const authError = useAuthStore((state) => state.authError);
+  const accessToken = useAuthStore((state) => state.accessToken);
 
-  const [syncTimedOut, setSyncTimedOut] = useState(false);
+  // A signed-in session with a profile that could not be loaded gets one
+  // quiet retry, then the recovery card below.
+  const [timedOut, setTimedOut] = useState(false);
 
+  // Re-check the profile whenever the session gains a token.
   useEffect(() => {
-    setTokenProvider(getToken);
-    setTokenGetter(getToken);
-  }, [getToken, setTokenGetter]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-
-    if (isSignedIn) checkAuth();
+    if (accessToken) checkAuth();
     else clearAuth();
-  }, [checkAuth, clearAuth, isLoaded, isSignedIn]);
+  }, [accessToken, checkAuth, clearAuth]);
 
   // PWA: register once in production so notifications + offline shell work.
   // In dev, actively unregister anything left over — a stale worker caches
@@ -54,36 +45,27 @@ function App() {
     else unregisterServiceWorkers();
   }, []);
 
-  // The Clerk webhook may still be syncing a brand-new account. Retry quietly
-  // until the profile exists so the user never lands on an empty chat.
-  const syncPending = !authError || authError === "SYNCING";
-
+  // Signed in but the profile still isn't loaded — retry a few times before
+  // giving up, so a brief hiccup never shows an error card.
   useEffect(() => {
-    if (!isSignedIn || authUser || syncTimedOut || !syncPending) {
-      return undefined;
-    }
-    let attempts = 0;
-    const timer = setInterval(() => {
-      attempts += 1;
+    if (!accessToken || authUser || timedOut) return undefined;
+
+    const timer = setTimeout(() => {
       checkAuth();
-      if (attempts >= 5) {
-        clearInterval(timer);
-        setSyncTimedOut(true);
-      }
+      setTimedOut(true);
     }, 4000);
 
-    return () => clearInterval(timer);
-  }, [isSignedIn, authUser, checkAuth, syncTimedOut, syncPending]);
+    return () => clearTimeout(timer);
+  }, [accessToken, authUser, checkAuth, timedOut]);
 
-  const syncingAccount =
-    isSignedIn && !authUser && !syncTimedOut && syncPending;
+  const isSignedIn = Boolean(accessToken && authUser);
 
-  if (!isLoaded || (isSignedIn && isCheckingAuth) || syncingAccount) {
+  if (!isSignedIn && accessToken && isCheckingAuth) {
     return <PageLoader />;
   }
 
-  // Signed in but the profile could not be loaded (bad token / server down).
-  if (isSignedIn && !authUser) {
+  // Signed in but the profile could not be loaded.
+  if (accessToken && !authUser) {
     return (
       <ThemeProvider>
         <WallpaperProvider>
@@ -99,13 +81,13 @@ function App() {
                 <Button
                   variant="primary"
                   onPress={() => {
-                    setSyncTimedOut(false);
+                    setTimedOut(false);
                     checkAuth();
                   }}
                 >
                   Try again
                 </Button>
-                <Button variant="ghost" onPress={() => clerk.signOut()}>
+                <Button variant="ghost" onPress={logout}>
                   Sign out
                 </Button>
               </div>
@@ -117,7 +99,7 @@ function App() {
     );
   }
 
-  const pending = isSignedIn && authUser && authUser.isApproved === false;
+  const pending = isSignedIn && authUser.isApproved === false;
 
   return (
     <ThemeProvider>

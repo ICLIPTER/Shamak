@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Modal } from "@heroui/react";
 import { BellIcon, BellOffIcon, LogOutIcon } from "lucide-react";
-import { useClerk } from "@clerk/react";
 import toast from "react-hot-toast";
 
 import { axiosInstance } from "../lib/axios";
@@ -21,9 +20,9 @@ const FIELDS = [
 ];
 
 function ProfileContent({ modal }) {
-  const clerk = useClerk();
   const authUser = useAuthStore((store) => store.authUser);
   const refreshAuth = useAuthStore((store) => store.refreshAuth);
+  const logout = useAuthStore((store) => store.logout);
 
   // Mounted fresh each time the modal opens, so the initializer is always
   // reading the latest profile — no syncing effect required.
@@ -154,7 +153,7 @@ function ProfileContent({ modal }) {
           </Button>
         </div>
 
-        <Button variant="ghost" className="w-full text-danger" onPress={() => clerk.signOut()}>
+        <Button variant="ghost" className="w-full text-danger" onPress={logout}>
           <LogOutIcon className="size-4" /> Sign out
         </Button>
       </Modal.Body>

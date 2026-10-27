@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@heroui/react";
-import { useClerk } from "@clerk/react";
 import { KeyRoundIcon, LogOutIcon, ShieldCheckIcon } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -10,9 +9,9 @@ import { APP_NAME, AppLogo } from "../components/AppLogo";
 import { useWallpaper } from "../context/wallpaper";
 
 export function PendingApproval() {
-  const clerk = useClerk();
   const authUser = useAuthStore((store) => store.authUser);
   const refreshAuth = useAuthStore((store) => store.refreshAuth);
+  const logout = useAuthStore((store) => store.logout);
   const { frameStyle } = useWallpaper();
 
   const [code, setCode] = useState("");
@@ -88,7 +87,7 @@ export function PendingApproval() {
         <Button
           variant="ghost"
           className="mt-5 w-full text-muted"
-          onPress={() => clerk.signOut()}
+          onPress={logout}
         >
           <LogOutIcon className="size-4" /> Sign out
         </Button>

@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import { verifyToken } from "@clerk/backend";
+import { verifyAccessToken } from "./token.js";
 
 import User from "../models/user.model.js";
 import Conversation from "../models/conversation.model.js";
@@ -64,17 +64,16 @@ export function getReceiverSocketId(userId) {
 
 // ---- Authentication -------------------------------------------------------
 // The client's userId is never trusted. Every socket must present a valid
-// Clerk session token, and we resolve the real user from it.
+// access token, and we resolve the real user from it.
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("Unauthorized"));
 
-    const payload = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
-    });
+    const payload = verifyAccessToken(token);
+    if (!payload) return next(new Error("Unauthorized"));
 
-    const user = await User.findOne({ clerkId: payload.sub }).select(
+    const user = await User.findById(payload.userId).select(
       "_id isApproved fullName",
     );
 

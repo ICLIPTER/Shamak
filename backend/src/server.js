@@ -7,12 +7,11 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 
-import { clerkMiddleware } from "@clerk/express";
+import cookieParser from "cookie-parser";
 
 import { connectDB } from "./lib/db.js";
 import job from "./lib/cron.js";
 
-import clerkWebhook from "./webhooks/clerk.webhook.js";
 import authRoutes from "./routes/auth.route.js";
 import conversationRoutes from "./routes/conversation.route.js";
 import messageRoutes from "./routes/message.route.js";
@@ -35,7 +34,11 @@ const allowedOrigins = (process.env.FRONTEND_URL || "")
 const publicDir = path.join(process.cwd(), "public");
 
 if (IS_PROD) {
-  const required = ["MONGO_URI", "CLERK_SECRET_KEY", "CLERK_PUBLISHABLE_KEY"];
+  const required = [
+    "MONGO_URI",
+    "JWT_ACCESS_SECRET",
+    "JWT_REFRESH_SECRET",
+  ];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) {
     console.error(`Missing required environment variables: ${missing.join(", ")}`);
@@ -64,21 +67,14 @@ app.use(compression());
 // Abuse protection for the whole API (see rateLimit.middleware.js).
 app.use(apiLimiter);
 
-// it's important that you don't parse the webhook event data, it should be in the raw format
-app.use(
-  "/api/webhooks/clerk",
-  express.raw({ type: "application/json" }),
-  clerkWebhook,
-);
-
 app.use(express.json({ limit: "2mb" }));
+app.use(cookieParser());
 app.use(
   cors({
     origin: allowedOrigins.length ? allowedOrigins : true,
     credentials: true,
   }),
 );
-app.use(clerkMiddleware());
 
 app.get("/health", (req, res) => {
   res.status(200).json({ ok: true, uptime: process.uptime() });
