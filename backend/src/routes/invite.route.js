@@ -11,16 +11,21 @@ import {
   protectRoute,
   requireAdmin,
 } from "../middleware/auth.middleware.js";
+import {
+  redeemLimiter,
+  writeLimiter,
+} from "../middleware/rateLimit.middleware.js";
 
 const router = express.Router();
 
 // A pending user must be able to redeem a code, so this route uses the
-// non-blocking auth middleware.
-router.post("/redeem", attachUser, redeemInvite);
+// non-blocking auth middleware. Tighter limit: it's the only endpoint where
+// guessing a code matters.
+router.post("/redeem", redeemLimiter, attachUser, redeemInvite);
 
 router.use(protectRoute, requireAdmin);
 router.get("/", listInvites);
-router.post("/", createInvite);
-router.delete("/:id", revokeInvite);
+router.post("/", writeLimiter, createInvite);
+router.delete("/:id", writeLimiter, revokeInvite);
 
 export default router;

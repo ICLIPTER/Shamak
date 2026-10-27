@@ -20,6 +20,7 @@ import userRoutes from "./routes/user.route.js";
 import inviteRoutes from "./routes/invite.route.js";
 import pushRoutes from "./routes/push.route.js";
 import { eventRouter, noteRouter } from "./routes/family.route.js";
+import { apiLimiter } from "./middleware/rateLimit.middleware.js";
 import { app, server } from "./lib/socket.js";
 
 const PORT = process.env.PORT || 3001;
@@ -59,6 +60,9 @@ app.use((req, res, next) => {
 });
 
 app.use(compression());
+
+// Abuse protection for the whole API (see rateLimit.middleware.js).
+app.use(apiLimiter);
 
 // it's important that you don't parse the webhook event data, it should be in the raw format
 app.use(
