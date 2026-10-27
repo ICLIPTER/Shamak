@@ -7,6 +7,9 @@ services:
     name: shamak
     runtime: docker
     plan: free
+    # Co-locate with the MongoDB Atlas cluster (AWS Mumbai / ap-south-1):
+    # the DB round trips dominate per-message latency, ~250ms vs ~30ms.
+    region: singapore
     healthCheckPath: /health
     autoDeploy: true
     envVars:
