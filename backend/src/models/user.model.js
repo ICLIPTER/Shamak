@@ -3,10 +3,11 @@ import mongoose from "mongoose";
 const userSchema = new mongoose.Schema(
   {
     // Legacy Clerk accounts keep this. Self-hosted accounts simply don't have
-    // it (missing fields bypass the unique index, null would not).
+    // it — sparse lets multiple documents omit the field without colliding.
     clerkId: {
       type: String,
       unique: true,
+      sparse: true,
       default: undefined,
     },
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Avatar, Button } from "@heroui/react";
 import {
   BellIcon,
@@ -6,6 +7,7 @@ import {
   InfoIcon,
   PinIcon,
   SearchIcon,
+  Trash2Icon,
   Volume2Icon,
   VolumeXIcon,
   XIcon,
@@ -47,6 +49,8 @@ export function ChatHeader({ onOpenGroupInfo, onOpenSearch, onOpenPinned }) {
   const title = conversationTitle(activeConversation);
   const group = isGroup(activeConversation);
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const toggleMute = async () => {
     if (!activeConversation) return;
     try {
@@ -58,6 +62,23 @@ export function ChatHeader({ onOpenGroupInfo, onOpenSearch, onOpenPinned }) {
       toast.success(activeConversation.muted ? "Unmuted" : "Muted");
     } catch {
       toast.error("Could not update notifications");
+    }
+  };
+
+  /** Deletes the whole conversation + its history for EVERY member. */
+  const deleteChat = async () => {
+    if (!activeConversation) return;
+    try {
+      await axiosInstance.delete(`/conversations/${activeConversation._id}`);
+      toast.success("Chat deleted");
+      // The conversation:removed socket event drops it from everyone's
+      // sidebar, including ours.
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Could not delete this chat",
+      );
+    } finally {
+      setConfirmDelete(false);
     }
   };
 
@@ -180,6 +201,33 @@ export function ChatHeader({ onOpenGroupInfo, onOpenSearch, onOpenPinned }) {
                 <BellIcon className="size-5" strokeWidth={2} aria-hidden />
               )}
             </Button>
+
+            {confirmDelete ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-danger"
+                aria-label="Confirm chat deletion"
+                onPress={deleteChat}
+              >
+                Delete?
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                className="hidden sm:flex"
+                aria-label="Delete chat"
+                onPress={() => {
+                  setConfirmDelete(true);
+                  // Disarm automatically if they walk away.
+                  setTimeout(() => setConfirmDelete(false), 4000);
+                }}
+              >
+                <Trash2Icon className="size-5" strokeWidth={2} aria-hidden />
+              </Button>
+            )}
 
             <Button
               variant="ghost"

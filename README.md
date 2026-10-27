@@ -55,6 +55,8 @@ npm run dev                   # http://localhost:5173
 | `SELF_URL`                     | Public API URL, used by the keep-alive ping                   |
 | `JWT_ACCESS_SECRET`            | Signs 15-minute access tokens (required in production)        |
 | `JWT_REFRESH_SECRET`           | Signs 30-day refresh cookies (required in production)         |
+| `OWNER_EMAIL`                  | Reserved owner email — master recovery credential             |
+| `OWNER_PASSWORD`               | Recreates/resumes the owner's admin account on login          |
 | `IMAGEKIT_PRIVATE_KEY`         | Enables chat media uploads                                    |
 | `VAPID_PUBLIC_KEY`             | Web Push public key                                           |
 | `VAPID_PRIVATE_KEY`            | Web Push private key                                          |
@@ -98,6 +100,22 @@ db.users.updateOne({ email: "you@example.com" }, { $set: { role: "admin" } })
   chatting right away with the temp password.
 - Sessions: a 15-minute access token is kept on the device and refreshed
   silently by an HttpOnly cookie; a failed refresh signs the user out.
+
+### The owner account (indefinite admin)
+
+The `OWNER_EMAIL` + `OWNER_PASSWORD` environment variables are the app
+owner's master credentials — they live outside the database:
+
+- Logging in with them always works, as an approved family admin.
+- If the owner's account was ever deleted from the database, logging in with
+  them recreates it instantly as admin (role, approval and admin status are
+  restored even if the account exists but was altered).
+- Nobody can register a new account with the owner email, and admins (the
+  owner included) cannot be deleted through the Family hub — the server
+  refuses.
+- Changing the master password means editing `OWNER_PASSWORD` and setting the
+  account's password to match (local script:
+  `node scripts/set-password.js <owner-email> <new-password>`).
 
 ## Production
 

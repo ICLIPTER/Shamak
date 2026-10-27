@@ -496,7 +496,24 @@ function MembersTab() {
     }
   };
 
-  const reject = async (id) => {    try {
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Delete an approved member's account. Not offered for the owner/me rows,
+  // and admins are refused by the server as a second guard.
+  const deleteMember = async (id) => {
+    setConfirmDeleteId(null);
+    try {
+      await axiosInstance.delete(`/users/${id}/reject`);
+      setMembers((current) => current.filter((member) => member._id !== id));
+      setPending((current) => current.filter((user) => user._id !== id));
+      toast.success("Account deleted");
+    } catch {
+      toast.error("Could not delete that account");
+    }
+  };
+
+  const reject = async (id) => {
+    try {
       await axiosInstance.delete(`/users/${id}/reject`);
       setPending((current) => current.filter((user) => user._id !== id));
     } catch {
@@ -651,6 +668,35 @@ function MembersTab() {
                     title="Reset password"
                   >
                     <KeyRoundIcon className="size-4" />
+                  </button>
+                )}
+
+                {member._id === meId || member.role === "admin" ? null : confirmDeleteId === member._id ? (
+                  <button
+                    type="button"
+                    onClick={() => deleteMember(member._id)}
+                    className="shrink-0 rounded-full bg-danger px-3 py-1 text-[11px] font-semibold text-white"
+                  >
+                    Confirm?
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteId(member._id);
+                      // Safety: disarm automatically if they walk away.
+                      setTimeout(
+                        () => setConfirmDeleteId((current) =>
+                          current === member._id ? null : current,
+                        ),
+                        4000,
+                      );
+                    }}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-muted transition hover:text-danger"
+                    aria-label="Delete account"
+                    title="Delete account"
+                  >
+                    <Trash2Icon className="size-4" />
                   </button>
                 )}
 

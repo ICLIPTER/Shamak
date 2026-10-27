@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
 import Invite from "../models/invite.model.js";
 import { emitToUser } from "../lib/socket.js";
+import { invalidateUserCache } from "../middleware/auth.middleware.js";
 import {
   ACCESS_COOKIE_NAME,
   refreshCookieOptions,
@@ -14,8 +16,62 @@ const IS_PROD = process.env.NODE_ENV === "production";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function authResponse(res, user, { status = 200 } = {}) {
-  const accessToken = signAccessToken(user._id);
+// ---- Owner recovery ---------------------------------------------------------
+// THE owner's credentials live in the environment, so they exist
+// independently of the database: even if the admin account gets deleted,
+// logging in with these restores it as an approved family admin.
+
+function timingSafeEqualStrings(a, b) {
+  const bufferA = Buffer.from(String(a));
+  const bufferB = Buffer.from(String(b));
+  if (bufferA.length !== bufferB.length) return false;
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+/** True when the email is the reserved owner email. */
+export function isOwnerEmail(email) {
+  const ownerEmail = process.env.OWNER_EMAIL;
+  if (!ownerEmail || !email) return false;
+  return timingSafeEqualStrings(email, ownerEmail.toLowerCase().trim());
+}
+
+/** True only when BOTH the owner email AND the owner password match. */
+export function isOwnerCredential(email, password) {
+  const ownerPassword = process.env.OWNER_PASSWORD;
+  if (!ownerPassword || !password) return false;
+  return isOwnerEmail(email) && timingSafeEqualStrings(password, ownerPassword);
+}
+
+/** (Re)create the owner's account with admin powers. */
+async function restoreOwner(email) {
+  const existing = await User.findOne({ email });
+  if (existing) {
+    // The owner logging in with the master password always lands as an
+    // approved admin, even if their account was somehow demoted/blocked.
+    if (existing.role !== "admin" || existing.isApproved === false) {
+      existing.role = "admin";
+      existing.isApproved = true;
+      await existing.save();
+      invalidateUserCache(existing._id);
+    }
+    return existing;
+  }
+
+  const created = await User.create({
+    fullName: "Owner",
+    email,
+    // Store a hash of the owner password too, so normal logins (e.g. after
+    // the env var is removed later) keep working.
+    passwordHash: await bcrypt.hash(process.env.OWNER_PASSWORD, 10),
+    role: "admin",
+    isApproved: true,
+  });
+  invalidateUserCache(created._id);
+  return created;
+}
+
+
+function authResponse(res, user, { status = 200 } = {}) {  const accessToken = signAccessToken(user._id);
   res
     .cookie(ACCESS_COOKIE_NAME, signRefreshToken(user._id), {
       ...refreshCookieOptions(IS_PROD),
@@ -74,6 +130,14 @@ export async function register(req, res) {
       return;
     }
 
+    // The owner email is reserved for the master recovery credentials.
+    if (isOwnerEmail(email)) {
+      res
+        .status(409)
+        .json({ message: "That email is reserved — use the sign-in form" });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     // Port of the old Clerk webhook rules:
@@ -119,7 +183,20 @@ export async function login(req, res) {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
 
-    const user = await User.findOne({ email }).select(
+    // ---- Owner recovery -------------------------------------------------
+    // If the owner's account is missing (accidentally dropped from the
+    // database), the fixed OWNER_EMAIL + OWNER_PASSWORD credentials in the
+    // environment recreate it on the spot, still as the approved admin.
+    let user = null;
+    if (isOwnerCredential(email, password)) {
+      user = await restoreOwner(email);
+      if (user) {
+        authResponse(res, user);
+        return;
+      }
+    }
+
+    user = await User.findOne({ email }).select(
       "_id fullName email role isApproved passwordHash",
     );
 
